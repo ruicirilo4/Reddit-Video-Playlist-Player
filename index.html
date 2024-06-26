@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Reddit Video Playlist Player</title>
+    <!-- Bootstrap CSS (opcional, se você desejar estilização adicional) -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-EVSTQN3/azprG1Anm3QDgpJLIm9Nao0Yz1ztcQTwFspd3yD65VohhpuuCOmLASjC" crossorigin="anonymous">
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            padding: 20px;
+            text-align: center;
+            background-color: #f0f0f0;
+        }
+        h1 {
+            margin-bottom: 20px;
+        }
+        #videoPlayer {
+            margin: 0 auto;
+            max-width: 800px;
+        }
+        .controls {
+            margin-top: 10px;
+        }
+        .controls button {
+            padding: 10px 20px;
+            cursor: pointer;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            outline: none;
+            margin: 5px;
+        }
+        .controls button:hover {
+            background-color: #0056b3;
+        }
+        .playlist {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            justify-content: center;
+            margin-top: 20px;
+        }
+        .playlist button {
+            padding: 10px;
+            cursor: pointer;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            outline: none;
+        }
+        .playlist button:hover {
+            background-color: #0056b3;
+        }
+        #subredditSelector {
+            margin-bottom: 20px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Reddit Video Playlist Player</h1>
+    <div id="subredditSelector">
+        <label for="subreddit">Choose a subreddit:</label>
+        <select id="subreddit">
+            <option value="dreampop">/r/dreampop</option>
+            <option value="shareyourmusic">/r/shareyourmusic</option>
+            <option value="witch_house">/r/witch_house</option>
+            <option value="synthwave">/r/synthwave</option>
+            <option value="metal">/r/metal</option>
+        </select>
+        <button onclick="loadVideos()">Load Videos</button>
+    </div>
+    <div id="videoPlayer">
+        <iframe id="mainVideo" width="560" height="315" frameborder="0" allow="autoplay; encrypted-media" allowfullscreen></iframe>
+        <p id="currentVideoTitle" style="margin-top: 10px; font-weight: bold;"></p>
+    </div>
+    <div class="controls">
+        <button id="prevButton" onclick="playPreviousVideo()">Previous</button>
+        <button id="nextButton" onclick="playNextVideo()">Next</button>
+    </div>
+    <div class="playlist" id="videoPlaylist"></div>
+    
+    <script>
+        let currentVideoIndex = 0;
+        let videoData = []; // Array para armazenar os dados dos vídeos (URL e título)
+        let player; // Variável para armazenar o player do YouTube ou Vimeo
+
+        // Função para buscar posts de um subreddit
+        async function fetchRedditPosts(subreddit) {
+            try {
+                const response = await fetch(`https://www.reddit.com/r/${subreddit}.json`);
+                const data = await response.json();
+                return data.data.children;
+            } catch (error) {
+                throw new Error(`Error fetching posts from /r/${subreddit}: ${error.message}`);
+            }
+        }
+
+        // Função para extrair URLs de vídeos e títulos dos posts do Reddit
+        function extractVideoData(posts) {
+            const data = [];
+            posts.forEach(post => {
+                const url = post.data.url_overridden_by_dest || post.data.url; // Usa 'url_overridden_by_dest' se disponível
+                const title = post.data.title; // Obtém o título do post
+                if (isValidVideoUrl(url)) {
+                    data.push({ url, title });
+                }
+            });
+            return data;
+        }
+
+        // Função para verificar se uma URL é válida para vídeo
+        function isValidVideoUrl(url) {
+            // Verifica se a URL aponta para um arquivo de vídeo ou uma plataforma conhecida de hospedagem de vídeo
+            return (
+                url.includes('youtube.com') || url.includes('youtu.be') ||
+                url.includes('vimeo.com') || url.endsWith('.mp4') || url.endsWith('.webm')
+            );
+        }
+
+        // Função para criar a interface da playlist de vídeos
+        function createVideoPlaylist(data) {
+            const videoPlaylistDiv = document.getElementById('videoPlaylist');
+            videoPlaylistDiv.innerHTML = ''; // Limpa a playlist anterior
+            data.forEach((item, index) => {
+                const btn = document.createElement('button');
+                btn.textContent = item.title; // Usa o título do post como texto do botão
+                btn.addEventListener('click', () => {
+                    playVideo(index);
+                });
+                videoPlaylistDiv.appendChild(btn);
+            });
+        }
+
+        // Função para reproduzir um vídeo no player de vídeo principal
+        function playVideo(index) {
+            const mainVideo = document.getElementById('mainVideo');
+            const currentVideoTitle = document.getElementById('currentVideoTitle');
+            const data = videoData[index];
+            currentVideoIndex = index;
+
+            // Mostra o título do vídeo abaixo do player
+            currentVideoTitle.textContent = data.title;
+
+            // Adaptar o URL para iframe se for um vídeo do YouTube ou Vimeo
+            if (data.url.includes('youtube.com') || data.url.includes('youtu.be')) {
+                const videoId = data.url.split('v=')[1] || data.url.split('/').pop();
+                mainVideo.src = `https://www.youtube.com/embed/${videoId}?autoplay=1&enablejsapi=1`;
+                mainVideo.onload = () => initializeYouTubePlayer(mainVideo);
+            } else if (data.url.includes('vimeo.com')) {
+                const videoId = data.url.split('/').pop();
+                mainVideo.src = `https://player.vimeo.com/video/${videoId}?autoplay=1`;
+                mainVideo.onload = () => initializeVimeoPlayer(mainVideo);
+            } else {
+                mainVideo.src = data.url;
+                mainVideo.onended = playNextVideo;
+            }
+        }
+
+        // Inicializa o player do YouTube
+        function initializeYouTubePlayer(iframe) {
+            player = new YT.Player(iframe, {
+                events: {
+                    'onStateChange': onYouTubePlayerStateChange
+                }
+            });
+        }
+
+        // Função para lidar com as mudanças de estado do player do YouTube
+        function onYouTubePlayerStateChange(event) {
+            if (event.data === YT.PlayerState.ENDED) {
+                playNextVideo();
+            }
+        }
+
+        // Inicializa o player do Vimeo
+        function initializeVimeoPlayer(iframe) {
+            player = new Vimeo.Player(iframe);
+            player.on('ended', playNextVideo);
+        }
+
+        // Função para carregar vídeos com base no subreddit selecionado
+        function loadVideos() {
+            const subreddit = document.getElementById('subreddit').value;
+            fetchRedditPosts(subreddit)
+                .then(posts => {
+                    videoData = extractVideoData(posts);
+                    createVideoPlaylist(videoData);
+                    if (videoData.length > 0) {
+                        playVideo(0); // Reproduz o primeiro vídeo por padrão
+                    } else {
+                        console.warn(`No valid video URLs found in /r/${subreddit}`);
+                    }
+                })
+                .catch(err => {
+                    console.error(`Error fetching posts from /r/${subreddit}:`, err);
+                });
+        }
+
+        // Função para reproduzir o próximo vídeo na playlist
+        function playNextVideo() {
+            currentVideoIndex++;
+            if (currentVideoIndex < videoData.length) {
+                playVideo(currentVideoIndex);
+            } else {
+                currentVideoIndex = 0; // Reinicia a playlist
+                playVideo(currentVideoIndex);
+                console.log('Playlist ended.'); // Mensagem de fim da playlist (opcional)
+            }
+        }
+
+        // Função para reproduzir o vídeo anterior na playlist
+        function playPreviousVideo() {
+            currentVideoIndex--;
+            if (currentVideoIndex >= 0) {
+                playVideo(currentVideoIndex);
+            } else {
+                currentVideoIndex = videoData.length - 1; // Vai para o último vídeo
+                playVideo(currentVideoIndex);
+            }
+        }
+
+        // Carrega vídeos iniciais do subreddit padrão
+        document.addEventListener('DOMContentLoaded', () => {
+            loadVideos();
+        });
+
+        // Carrega a API do YouTube
+        var tag = document.createElement('script');
+        tag.src = "https://www.youtube.com/iframe_api";
+        var firstScriptTag = document.getElementsByTagName('script')[0];
+        firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
+
+        // Carrega a API do Vimeo
+        var vimeoTag = document.createElement('script');
+        vimeoTag.src = "https://player.vimeo.com/api/player.js";
+        firstScriptTag.parentNode.insertBefore(vimeoTag, firstScriptTag);
+    </script>
+</body>
+</html>
